@@ -338,34 +338,39 @@ app.post("/api/refine", async (req, res) => {
     };
 
     const startedAt = Date.now();
-    const rawOutput = await replicate.run(REFINE_MODEL_VERSION, {
+    const chunks = [];
+
+    for await (const event of replicate.stream(REFINE_MODEL_VERSION, {
       input: refineInput,
-    });
+    })) {
+      if (typeof event === "string") {
+        chunks.push(event);
+      } else if (event && typeof event === "object") {
+        const candidate =
+          typeof event.output === "string"
+            ? event.output
+            : typeof event.data === "string"
+              ? event.data
+              : typeof event.delta === "string"
+                ? event.delta
+                : "";
+        if (candidate) {
+          chunks.push(candidate);
+        }
+      }
+    }
 
-    const output = await normalizeRunOutput(rawOutput);
     const elapsedSeconds = Number(((Date.now() - startedAt) / 1000).toFixed(2));
-    const prediction = {
-      status: "succeeded",
-      output,
-    };
-
-    const refinedSegments = [];
-    collectTextSegments(output, refinedSegments);
-
-    let refinedPrompt = refinedSegments.join(" ").replace(/\s+/g, " ").trim();
-
-    if (!refinedPrompt) {
-      refinedPrompt = normalizeText(extractTextOutput(prediction));
-    }
-
-    if (!refinedPrompt) {
-      refinedPrompt = trimmedPrompt;
-    }
+    const rawText = chunks.join("").replace(/\s+/g, " ").trim();
+    const refinedPrompt = rawText || trimmedPrompt;
 
     return res.json({
       refined_prompt: refinedPrompt,
       elapsed_seconds: elapsedSeconds,
-      prediction,
+      prediction: {
+        status: "succeeded",
+        output: chunks,
+      },
     });
   } catch (error) {
     if (error && typeof error === "object" && "status" in error) {
