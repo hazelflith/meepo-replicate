@@ -137,6 +137,23 @@ const normalizeRunOutput = async (value) => {
   return value;
 };
 
+const collectTextSegments = (value, acc) => {
+  if (typeof value === "string") {
+    const text = value.trim();
+    if (text) acc.push(text);
+    return;
+  }
+
+  if (Array.isArray(value)) {
+    value.forEach((item) => collectTextSegments(item, acc));
+    return;
+  }
+
+  if (value && typeof value === "object") {
+    Object.values(value).forEach((entry) => collectTextSegments(entry, acc));
+  }
+};
+
 app.use(express.json({ limit: "20mb" }));
 app.use(express.static(path.join(__dirname, "public")));
 
@@ -332,7 +349,15 @@ app.post("/api/refine", async (req, res) => {
       output,
     };
 
-    let refinedPrompt = normalizeText(extractTextOutput(prediction));
+    const refinedSegments = [];
+    collectTextSegments(output, refinedSegments);
+
+    let refinedPrompt = refinedSegments.join(" ").replace(/\s+/g, " ").trim();
+
+    if (!refinedPrompt) {
+      refinedPrompt = normalizeText(extractTextOutput(prediction));
+    }
+
     if (!refinedPrompt) {
       refinedPrompt = trimmedPrompt;
     }
