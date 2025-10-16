@@ -1,7 +1,7 @@
 import path from "path";
 import express from "express";
 import dotenv from "dotenv";
-import fetch from "node-fetch";
+import Replicate from "replicate";
 import { fileURLToPath } from "url";
 
 dotenv.config();
@@ -12,11 +12,12 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-const terminalStatuses = new Set(["succeeded", "failed", "canceled"]);
-const pollIntervalMs = Number(process.env.REPLICATE_POLL_INTERVAL_MS || 2000);
-const waitTimeoutMs = Number(process.env.REPLICATE_TIMEOUT_MS || 120000);
 const DEFAULT_MODEL_KEY = (process.env.REPLICATE_DEFAULT_MODEL_KEY || "seedream").toLowerCase();
 const REFINE_MODEL_VERSION = process.env.REPLICATE_REFINE_MODEL_VERSION;
+
+const replicate = new Replicate({
+  auth: process.env.REPLICATE_API_TOKEN,
+});
 
 const MODEL_CONFIG = {
   seedream: {
@@ -86,61 +87,35 @@ const extractTextOutput = (prediction) => {
   return "";
 };
 
-const createAndPollPrediction = async ({ token, body }) => {
-  const createResponse = await fetch("https://api.replicate.com/v1/predictions", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Token ${token}`,
-    },
-    body: JSON.stringify(body),
-  });
-
-  const initialPrediction = await createResponse.json();
-
-  if (!createResponse.ok) {
-    const error = new Error(initialPrediction?.error || "Failed to create prediction.");
-    error.status = createResponse.status;
-    error.details = initialPrediction;
-    throw error;
+const normalizeRunOutput = async (value) => {
+  if (value === null || value === undefined) {
+    return value;
   }
 
-  let prediction = initialPrediction;
-  const startedAt = Date.now();
+  if (Array.isArray(value)) {
+    return Promise.all(value.map((item) => normalizeRunOutput(item)));
+  }
 
-  while (!terminalStatuses.has(prediction.status)) {
-    if (Date.now() - startedAt > waitTimeoutMs) {
-      const error = new Error("Timed out while waiting for Replicate prediction to finish.");
-      error.status = 504;
-      error.details = prediction;
-      throw error;
+  if (typeof value === "object") {
+    if (typeof value.url === "function") {
+      try {
+        return await value.url();
+      } catch (error) {
+        console.warn("Failed to resolve file output URL", error);
+      }
     }
 
-    await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
+    if (value instanceof ArrayBuffer || ArrayBuffer.isView(value)) {
+      return value;
+    }
 
-    const pollResponse = await fetch(
-      `https://api.replicate.com/v1/predictions/${prediction.id}`,
-      {
-        headers: {
-          Authorization: `Token ${token}`,
-        },
-      },
+    const entries = await Promise.all(
+      Object.entries(value).map(async ([key, subValue]) => [key, await normalizeRunOutput(subValue)]),
     );
-
-    prediction = await pollResponse.json();
-
-    if (!pollResponse.ok) {
-      const error = new Error(
-        prediction?.error || "Failed while polling prediction status.",
-      );
-      error.status = pollResponse.status;
-      error.details = prediction;
-      throw error;
-    }
+    return Object.fromEntries(entries);
   }
 
-  const elapsedSeconds = Number(((Date.now() - startedAt) / 1000).toFixed(2));
-  return { prediction, elapsedSeconds };
+  return value;
 };
 
 app.use(express.json({ limit: "20mb" }));
@@ -255,19 +230,20 @@ app.post("/api/predictions", async (req, res) => {
       }
     }
 
-    const replicateBody = {
-      version: config.version,
+    const startedAt = Date.now();
+    const rawOutput = await replicate.run(config.version, {
       input: inputPayload,
-    };
-
-    const { prediction, elapsedSeconds } = await createAndPollPrediction({
-      token,
-      body: replicateBody,
     });
+
+    const output = await normalizeRunOutput(rawOutput);
+    const elapsedSeconds = Number(((Date.now() - startedAt) / 1000).toFixed(2));
 
     return res.json({
       elapsed_seconds: elapsedSeconds,
-      prediction,
+      prediction: {
+        status: "succeeded",
+        output,
+      },
     });
   } catch (error) {
     if (error && typeof error === "object" && "status" in error) {
@@ -307,33 +283,37 @@ app.post("/api/refine", async (req, res) => {
       return res.status(400).json({ error: 'Field "prompt" is required.' });
     }
 
-    const refineBody = {
-      version: REFINE_MODEL_VERSION,
-      input: {
-        messages: [
-          {
-            role: "system",
-            content:
-              "You are an expert prompt engineer for text-to-image diffusion models. Refine prompts for clarity, vivid detail, and photo-realism while preserving the original intent. Respond with the improved prompt only.",
-          },
-          {
-            role: "user",
-            content: trimmedPrompt,
-          },
-        ],
-        max_output_tokens: 400,
-        temperature: 0.3,
-        top_p: 0.9,
-        prompt: `Refine the following image-generation prompt while keeping its core intent intact. Respond with the improved prompt only.\n\n${trimmedPrompt}`,
-      },
+    const refineInput = {
+      messages: [
+        {
+          role: "system",
+          content:
+            "You are an expert prompt engineer for text-to-image diffusion models. Refine prompts for clarity, vivid detail, and photo-realism while preserving the original intent. Respond with the improved prompt only.",
+        },
+        {
+          role: "user",
+          content: trimmedPrompt,
+        },
+      ],
+      max_output_tokens: 400,
+      temperature: 0.3,
+      top_p: 0.9,
+      prompt: `Refine the following image-generation prompt while keeping its core intent intact. Respond with the improved prompt only.\n\n${trimmedPrompt}`,
     };
 
-    const { prediction, elapsedSeconds } = await createAndPollPrediction({
-      token,
-      body: refineBody,
+    const startedAt = Date.now();
+    const rawOutput = await replicate.run(REFINE_MODEL_VERSION, {
+      input: refineInput,
     });
 
-    let refinedPrompt = extractTextOutput(prediction);
+    const output = await normalizeRunOutput(rawOutput);
+    const elapsedSeconds = Number(((Date.now() - startedAt) / 1000).toFixed(2));
+    const prediction = {
+      status: "succeeded",
+      output,
+    };
+
+    let refinedPrompt = normalizeText(extractTextOutput(prediction));
     if (!refinedPrompt) {
       refinedPrompt = trimmedPrompt;
     }

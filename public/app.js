@@ -224,6 +224,94 @@ function filesToBase64(input) {
   );
 }
 
+const humanFileSize = (bytes) => {
+  if (!Number.isFinite(bytes) || bytes < 0) return "";
+  const units = ["B", "KB", "MB", "GB"];
+  let size = bytes;
+  let unit = 0;
+  while (size >= 1024 && unit < units.length - 1) {
+    size /= 1024;
+    unit += 1;
+  }
+  const precision = size >= 10 || unit === 0 ? 0 : 1;
+  return `${size.toFixed(precision)} ${units[unit]}`;
+};
+
+const removeFileFromInput = (input, index) => {
+  if (!input?.files) return;
+  const dataTransfer = new DataTransfer();
+  Array.from(input.files).forEach((file, i) => {
+    if (i !== index) {
+      dataTransfer.items.add(file);
+    }
+  });
+  input.files = dataTransfer.files;
+  input.dispatchEvent(new Event("change", { bubbles: true }));
+};
+
+const renderFilePreviewList = (input, container) => {
+  if (!container || !input) return;
+  container.innerHTML = "";
+
+  const files = Array.from(input.files || []);
+  if (!files.length) {
+    container.classList.add("file-preview-list--empty");
+    return;
+  }
+
+  container.classList.remove("file-preview-list--empty");
+
+  files.forEach((file, index) => {
+    const item = document.createElement("div");
+    item.className = "file-preview-item";
+
+    const thumbWrapper = document.createElement("div");
+    thumbWrapper.className = "file-preview-thumb";
+
+    if (file.type.startsWith("image/")) {
+      const thumbImage = document.createElement("img");
+      thumbImage.alt = `Preview of ${file.name}`;
+      thumbImage.decoding = "async";
+      const objectUrl = URL.createObjectURL(file);
+      thumbImage.src = objectUrl;
+      thumbImage.onload = () => URL.revokeObjectURL(objectUrl);
+      thumbImage.onerror = () => URL.revokeObjectURL(objectUrl);
+      thumbWrapper.appendChild(thumbImage);
+    } else {
+      thumbWrapper.classList.add("file-preview-thumb--placeholder");
+      thumbWrapper.textContent = file.name?.charAt(0)?.toUpperCase() || "?";
+    }
+
+    const details = document.createElement("div");
+    details.className = "file-preview-details";
+
+    const nameEl = document.createElement("span");
+    nameEl.className = "file-preview-name";
+    nameEl.textContent = file.name || `File ${index + 1}`;
+
+    const metaEl = document.createElement("span");
+    metaEl.className = "file-preview-meta";
+    metaEl.textContent = [file.type.split("/")[1] || file.type || "" , humanFileSize(file.size)]
+      .filter(Boolean)
+      .join(" · ");
+
+    details.appendChild(nameEl);
+    details.appendChild(metaEl);
+
+    const removeButton = document.createElement("button");
+    removeButton.type = "button";
+    removeButton.className = "file-preview-remove";
+    removeButton.setAttribute("aria-label", `Remove ${file.name || `file ${index + 1}`}`);
+    removeButton.innerHTML = "×";
+    removeButton.addEventListener("click", () => removeFileFromInput(input, index));
+
+    item.appendChild(thumbWrapper);
+    item.appendChild(details);
+    item.appendChild(removeButton);
+    container.appendChild(item);
+  });
+};
+
 function showToast(message, type = "info") {
   toast.textContent = message;
   toast.classList.remove("hidden");
@@ -328,6 +416,7 @@ function createSeedreamConfig() {
   const form = document.getElementById("seedream-form");
   const promptField = document.getElementById("seedream-prompt");
   const fileInput = document.getElementById("seedream-image-input");
+  const previewContainer = document.getElementById("seedream-image-preview");
   const sizeSelect = document.getElementById("seedream-size");
   const aspectSelect = document.getElementById("seedream-aspect-ratio");
   const widthRange = document.getElementById("seedream-width");
@@ -447,6 +536,7 @@ function createSeedreamConfig() {
   });
 
   fileInput.addEventListener("change", updateMatchInputAspectFromFile);
+  fileInput.addEventListener("change", () => renderFilePreviewList(fileInput, previewContainer));
 
   setSizeDependentState();
 
@@ -465,6 +555,7 @@ function createSeedreamConfig() {
     fileInput.value = "";
     matchInputAspect = null;
     applyPreviewAspect();
+    renderFilePreviewList(fileInput, previewContainer);
   }
 
   async function gatherPayload() {
@@ -502,6 +593,7 @@ function createSeedreamConfig() {
   }
 
   applyPreviewAspect();
+  renderFilePreviewList(fileInput, previewContainer);
 
   seedreamRefineButton?.addEventListener("click", async () => {
     const prompt = promptField.value.trim();
@@ -577,6 +669,7 @@ function createReviseConfig() {
   const form = document.getElementById("revise-form");
   const promptField = document.getElementById("revise-prompt");
   const fileInput = document.getElementById("revise-image-input");
+  const previewContainer = document.getElementById("revise-image-preview");
   const aspectSelect = document.getElementById("revise-aspect-ratio");
   const outputFormatSelect = document.getElementById("revise-output-format");
 
@@ -600,6 +693,7 @@ function createReviseConfig() {
   };
 
   aspectSelect.addEventListener("change", applyPreviewAspect);
+  fileInput.addEventListener("change", () => renderFilePreviewList(fileInput, previewContainer));
 
   function resetFields() {
     promptField.value = defaults.prompt;
@@ -607,6 +701,7 @@ function createReviseConfig() {
     outputFormatSelect.value = defaults.output_format;
     fileInput.value = "";
     applyPreviewAspect();
+    renderFilePreviewList(fileInput, previewContainer);
   }
 
   async function gatherPayload() {
@@ -633,6 +728,7 @@ function createReviseConfig() {
   }
 
   applyPreviewAspect();
+  renderFilePreviewList(fileInput, previewContainer);
 
   return {
     key: "nano-banana",
