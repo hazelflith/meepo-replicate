@@ -725,7 +725,9 @@ function createRemoveBgConfig() {
     applyStateToPreview("remove-bg", { fallbackAspect: getPreviewAspect() });
   };
 
-  fileInput.addEventListener("change", () => renderFilePreviewList(fileInput, previewContainer));
+  fileInput.addEventListener("change", () => {
+    renderFilePreviewList(Array.from(fileInput.files || []), previewContainer);
+  });
 
   function resetFields() {
     fileInput.value = "";
@@ -733,7 +735,7 @@ function createRemoveBgConfig() {
     contentModerationCheckbox.checked = defaults.content_moderation;
     preservePartialAlphaCheckbox.checked = defaults.preserve_partial_alpha;
     applyPreviewAspect();
-    renderFilePreviewList(fileInput, previewContainer);
+    renderFilePreviewList([], previewContainer);
   }
 
   async function gatherPayload() {
@@ -761,7 +763,7 @@ function createRemoveBgConfig() {
   }
 
   applyPreviewAspect();
-  renderFilePreviewList(fileInput, previewContainer);
+  renderFilePreviewList(Array.from(fileInput.files || []), previewContainer);
 
   return {
     key: "remove-bg",
