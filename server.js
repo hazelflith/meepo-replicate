@@ -30,7 +30,7 @@ const MODEL_CONFIG = {
   },
   "remove-bg": {
     envKey: "REPLICATE_REMOVE_BG_VERSION",
-    version: "briaai/bria-rmbg-2.0",
+    version: "cjwbw/rembg:fb8af171cfa1616ddcf1242c093f9c46bcada5ad4cf6f2fbe8b81b330ec5c003",
   },
 };
 
@@ -188,7 +188,7 @@ app.post("/api/predictions", async (req, res) => {
     const promptValue = typeof body.prompt === "string" ? body.prompt : "";
     const trimmedPrompt = promptValue.trim();
 
-    if (!trimmedPrompt) {
+    if (modelKey !== "remove-bg" && !trimmedPrompt) {
       return res.status(400).json({ error: 'Field "prompt" is required.' });
     }
 

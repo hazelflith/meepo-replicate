@@ -200,9 +200,10 @@ function createRangeValueSync(input) {
 
 import imageCompression from "https://cdn.jsdelivr.net/npm/browser-image-compression@2.0.2/+esm";
 
-function filesToBase64(input) {
+function filesToBase64(input, options = {}) {
   const files = Array.from(input?.files ?? []);
   if (!files.length) return Promise.resolve([]);
+  const { skipCompression = false } = options;
 
   return Promise.all(
     files.map(
@@ -211,7 +212,7 @@ function filesToBase64(input) {
           let fileToProcess = file;
 
           // Check if file size is greater than 2MB
-          if (file.size > 2 * 1024 * 1024) {
+          if (!skipCompression && file.size > 2 * 1024 * 1024) {
             try {
               console.log(`Compressing ${file.name} (${(file.size / 1024 / 1024).toFixed(2)} MB)...`);
               const options = {
@@ -657,7 +658,7 @@ function createRemoveBgConfig() {
     const image_url = imageUrlInput.value.trim();
     const content_moderation = contentModerationCheckbox.checked;
     const preserve_partial_alpha = preservePartialAlphaCheckbox.checked;
-    const image_input = await filesToBase64(fileInput);
+    const image_input = await filesToBase64(fileInput, { skipCompression: true });
 
     const payload = {
       model_key: "remove-bg",
@@ -738,7 +739,7 @@ async function handleSubmit(event, modelKey) {
     const { payload, downloadExtension } = await config.gatherPayload();
     payload.prompt = (payload.prompt || "").trim();
 
-    if (!payload.prompt) {
+    if (modelKey !== "remove-bg" && !payload.prompt) {
       showToast("Please provide a prompt before running the model.", "error");
       return;
     }
@@ -835,30 +836,7 @@ Object.entries(modelConfigs).forEach(([modelKey, config]) => {
   config.resetButton?.addEventListener("click", () => resetModelForm(modelKey));
 });
 
-const stubButtons = [
-  [tweakButton, "Tweak feature not wired yet."],
-  [iterateButton, "Iterate flow is not available in this playground."],
-  [shareButton, "Share link support coming soon."],
-  [reportButton, "Report flow is not available in this demo."],
-  [viewPredictionButton, "Full prediction view is not implemented in this demo."],
-  [
-    deleteButton,
-    () => {
-      resetModelState(activeModelKey, { preserveDownloadExtension: true });
-      applyStateToPreview(activeModelKey);
-      showToast("Prediction cleared.", "success");
-    },
-  ],
-];
 
-stubButtons.forEach(([button, handler]) => {
-  if (!button) return;
-  if (typeof handler === "function") {
-    button.addEventListener("click", handler);
-  } else {
-    button.addEventListener("click", () => showToast(handler));
-  }
-});
 
 document.addEventListener("keydown", (event) => {
   const isCmdOrCtrl = event.metaKey || event.ctrlKey;
