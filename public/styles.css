@@ -575,3 +575,132 @@ body {
     min-height: 360px;
   }
 }
+
+.loading-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.85);
+  backdrop-filter: blur(8px);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+}
+
+.loading-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 24px;
+}
+
+.spinner {
+  width: 48px;
+  height: 48px;
+  border: 4px solid rgba(255, 255, 255, 0.1);
+  border-left-color: #33a0ff;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+.loading-text {
+  font-size: 18px;
+  font-weight: 500;
+  color: #fff;
+  text-align: center;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+/* File Preview List */
+.file-preview-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.file-preview-list--empty {
+  display: none;
+}
+
+.file-preview-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  padding: 8px;
+}
+
+.file-preview-thumb {
+  width: 48px;
+  height: 48px;
+  border-radius: 6px;
+  overflow: hidden;
+  background: rgba(0, 0, 0, 0.2);
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.file-preview-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.file-preview-thumb--placeholder {
+  color: rgba(255, 255, 255, 0.4);
+  font-weight: 600;
+  font-size: 18px;
+}
+
+.file-preview-details {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.file-preview-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: #e2e8f0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.file-preview-meta {
+  font-size: 11px;
+  color: #94a3b8;
+}
+
+.file-preview-remove {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.6);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  transition: all 0.2s;
+}
+
+.file-preview-remove:hover {
+  background: rgba(255, 87, 87, 0.2);
+  color: #ff5757;
+}
+

@@ -4,6 +4,9 @@ const outputJson = document.getElementById("output-json");
 const generatedTime = document.getElementById("generated-time");
 const toast = document.getElementById("toast");
 const seedreamRefineButton = document.getElementById("seedream-refine-button");
+const loadingOverlay = document.getElementById("loading-overlay");
+const loadingText = document.getElementById("loading-text");
+const downloadButton = document.getElementById("download-button");
 
 const modelButtons = document.querySelectorAll("[data-model-button]");
 const outputTabs = document.querySelectorAll("[data-output-tab]");
@@ -143,6 +146,25 @@ const applyStateToPreview = (modelKey, { fallbackAspect } = {}) => {
     typeof state.elapsedSeconds === "number" && Number.isFinite(state.elapsedSeconds)
       ? `${state.elapsedSeconds}s`
       : "—";
+
+  if (state.imageUrl) {
+    if (downloadButton) {
+      downloadButton.classList.remove("hidden");
+      downloadButton.onclick = () => {
+        const link = document.createElement("a");
+        link.href = state.imageUrl;
+        link.download = `generated-image.${state.downloadExtension || "png"}`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+      };
+    }
+  } else {
+    if (downloadButton) {
+      downloadButton.classList.add("hidden");
+      downloadButton.onclick = null;
+    }
+  }
 };
 
 const updateStateWithImage = (modelKey, imageUrl, downloadExtension) => {
@@ -200,8 +222,8 @@ function createRangeValueSync(input) {
 
 import imageCompression from "https://cdn.jsdelivr.net/npm/browser-image-compression@2.0.2/+esm";
 
-function filesToBase64(input, options = {}) {
-  const files = Array.from(input?.files ?? []);
+function filesToBase64(filesInput, options = {}) {
+  const files = Array.isArray(filesInput) ? filesInput : Array.from(filesInput?.files ?? []);
   if (!files.length) return Promise.resolve([]);
   const { skipCompression = false, onProgress } = options;
 
@@ -209,40 +231,39 @@ function filesToBase64(input, options = {}) {
   const totalFiles = files.length;
 
   return Promise.all(
-    files.map(
-      (file) =>
-        new Promise(async (resolve, reject) => {
-          let fileToProcess = file;
+    files.map(async (file) => {
+      let fileToProcess = file;
 
-          // Check if file size is greater than 2MB
-          if (!skipCompression && file.size > 2 * 1024 * 1024) {
-            try {
-              console.log(`Compressing ${file.name} (${(file.size / 1024 / 1024).toFixed(2)} MB)...`);
-              if (onProgress) onProgress({ status: "compressing", file: file.name });
+      // Check if file size is greater than 2MB
+      if (!skipCompression && file.size > 2 * 1024 * 1024) {
+        try {
+          console.log(`Compressing ${file.name} (${(file.size / 1024 / 1024).toFixed(2)} MB)...`);
+          if (onProgress) onProgress({ status: "compressing", file: file.name });
 
-              const options = {
-                maxSizeMB: 2,
-                maxWidthOrHeight: 1920,
-                useWebWorker: true,
-              };
-              fileToProcess = await imageCompression(file, options);
-              console.log(`Compressed to ${(fileToProcess.size / 1024 / 1024).toFixed(2)} MB`);
-            } catch (error) {
-              console.error("Compression failed:", error);
-              // Fallback to original file if compression fails
-            }
-          }
-
-          const reader = new FileReader();
-          reader.onload = () => {
-            processedCount++;
-            if (onProgress) onProgress({ status: "processed", count: processedCount, total: totalFiles });
-            resolve(reader.result);
+          const options = {
+            maxSizeMB: 2,
+            maxWidthOrHeight: 1920,
+            useWebWorker: true,
           };
-          reader.onerror = (err) => reject(err);
-          reader.readAsDataURL(fileToProcess);
-        }),
-    ),
+          fileToProcess = await imageCompression(file, options);
+          console.log(`Compressed to ${(fileToProcess.size / 1024 / 1024).toFixed(2)} MB`);
+        } catch (error) {
+          console.error("Compression failed:", error);
+          // Fallback to original file if compression fails
+        }
+      }
+
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+          processedCount++;
+          if (onProgress) onProgress({ status: "processed", count: processedCount, total: totalFiles });
+          resolve(reader.result);
+        };
+        reader.onerror = (err) => reject(err);
+        reader.readAsDataURL(fileToProcess);
+      });
+    }),
   );
 }
 
@@ -271,12 +292,12 @@ const removeFileFromInput = (input, index) => {
   input.dispatchEvent(new Event("change", { bubbles: true }));
 };
 
-const renderFilePreviewList = (input, container) => {
-  if (!container || !input) return;
+const renderFilePreviewList = (files, container, onRemove) => {
+  console.log("renderFilePreviewList called", { files, container });
+  if (!container) return;
   container.innerHTML = "";
 
-  const files = Array.from(input.files || []);
-  if (!files.length) {
+  if (!files || !files.length) {
     container.classList.add("file-preview-list--empty");
     return;
   }
@@ -290,15 +311,28 @@ const renderFilePreviewList = (input, container) => {
     const thumbWrapper = document.createElement("div");
     thumbWrapper.className = "file-preview-thumb";
 
-    if (file.type.startsWith("image/")) {
+    const isImage = file.type.startsWith("image/") || /\.(jpe?g|png|gif|webp|bmp)$/i.test(file.name);
+
+    if (isImage) {
       const thumbImage = document.createElement("img");
       thumbImage.alt = `Preview of ${file.name}`;
       thumbImage.decoding = "async";
-      const objectUrl = URL.createObjectURL(file);
-      thumbImage.src = objectUrl;
-      thumbImage.onload = () => URL.revokeObjectURL(objectUrl);
-      thumbImage.onerror = () => URL.revokeObjectURL(objectUrl);
-      thumbWrapper.appendChild(thumbImage);
+      try {
+        const objectUrl = URL.createObjectURL(file);
+        thumbImage.src = objectUrl;
+        thumbImage.onload = () => URL.revokeObjectURL(objectUrl);
+        thumbImage.onerror = () => {
+          console.error("Failed to load preview image", file.name);
+          URL.revokeObjectURL(objectUrl);
+          thumbWrapper.classList.add("file-preview-thumb--placeholder");
+          thumbWrapper.textContent = "!";
+        };
+        thumbWrapper.appendChild(thumbImage);
+      } catch (e) {
+        console.error("Error creating object URL", e);
+        thumbWrapper.classList.add("file-preview-thumb--placeholder");
+        thumbWrapper.textContent = "?";
+      }
     } else {
       thumbWrapper.classList.add("file-preview-thumb--placeholder");
       thumbWrapper.textContent = file.name?.charAt(0)?.toUpperCase() || "?";
@@ -325,7 +359,9 @@ const renderFilePreviewList = (input, container) => {
     removeButton.className = "file-preview-remove";
     removeButton.setAttribute("aria-label", `Remove ${file.name || `file ${index + 1}`}`);
     removeButton.innerHTML = "×";
-    removeButton.addEventListener("click", () => removeFileFromInput(input, index));
+    removeButton.addEventListener("click", () => {
+      if (onRemove) onRemove(index);
+    });
 
     item.appendChild(thumbWrapper);
     item.appendChild(details);
@@ -414,25 +450,28 @@ function setActiveOutputTab(tabName) {
   if (tabName === "preview") {
     outputPreview.classList.remove("hidden");
     outputJson.classList.add("hidden");
-  } else {
-    outputPreview.classList.add("hidden");
-    outputJson.classList.remove("hidden");
   }
 }
 
 function toggleRunning(isRunning, config, statusText = "Generating…") {
   const runButton = config?.runButton;
-  if (!runButton) return;
 
   if (isRunning) {
-    if (!runButton.disabled) {
-      runButton.dataset.originalHtml = runButton.innerHTML;
+    if (loadingOverlay) {
+      loadingOverlay.classList.remove("hidden");
+      if (loadingText) loadingText.textContent = statusText;
     }
-    runButton.innerHTML = statusText;
-    runButton.disabled = true;
+
+    if (runButton && !runButton.disabled) {
+      runButton.dataset.originalHtml = runButton.innerHTML;
+      runButton.disabled = true;
+    }
   } else {
-    runButton.innerHTML = runButton.dataset.originalHtml || "Run";
-    runButton.disabled = false;
+    if (loadingOverlay) loadingOverlay.classList.add("hidden");
+    if (runButton) {
+      runButton.innerHTML = runButton.dataset.originalHtml || "Run";
+      runButton.disabled = false;
+    }
   }
 }
 
@@ -456,6 +495,7 @@ function createNanoBananaConfig() {
   };
 
   let matchInputAspect = null;
+  let selectedFiles = [];
 
   const getPreviewAspect = () => {
     const aspectValue = aspectSelect.value;
@@ -483,7 +523,7 @@ function createNanoBananaConfig() {
       applyPreviewAspect();
       return;
     }
-    const firstFile = fileInput.files?.[0];
+    const firstFile = selectedFiles[0];
     if (!firstFile) {
       applyPreviewAspect();
       return;
@@ -515,8 +555,33 @@ function createNanoBananaConfig() {
     }
   });
 
-  fileInput.addEventListener("change", updateMatchInputAspectFromFile);
-  fileInput.addEventListener("change", () => renderFilePreviewList(fileInput, previewContainer));
+  fileInput.addEventListener("change", () => {
+    console.log("File input changed");
+    const newFiles = Array.from(fileInput.files || []);
+    if (newFiles.length > 0) {
+      selectedFiles = [...selectedFiles, ...newFiles];
+      fileInput.value = ""; // Clear input to allow re-selecting same file
+      updateMatchInputAspectFromFile();
+      renderFilePreviewList(selectedFiles, previewContainer, (indexToRemove) => {
+        selectedFiles = selectedFiles.filter((_, i) => i !== indexToRemove);
+        renderFilePreviewList(selectedFiles, previewContainer, (idx) => {
+          // Recursive callback handling is tricky here, better to just re-render with same logic
+          // But since we are inside the closure, we can just call the main render
+          // Actually, let's simplify: define a render function
+          updatePreview();
+        });
+        updateMatchInputAspectFromFile();
+      });
+    }
+  });
+
+  const updatePreview = () => {
+    renderFilePreviewList(selectedFiles, previewContainer, (indexToRemove) => {
+      selectedFiles = selectedFiles.filter((_, i) => i !== indexToRemove);
+      updatePreview();
+      updateMatchInputAspectFromFile();
+    });
+  };
 
   function resetFields() {
     promptField.value = defaults.prompt;
@@ -525,9 +590,10 @@ function createNanoBananaConfig() {
     outputFormatSelect.value = defaults.output_format;
     safetyFilterLevelSelect.value = defaults.safety_filter_level;
     fileInput.value = "";
+    selectedFiles = [];
     matchInputAspect = null;
     applyPreviewAspect();
-    renderFilePreviewList(fileInput, previewContainer);
+    updatePreview();
   }
 
   async function gatherPayload(onProgress) {
@@ -537,7 +603,7 @@ function createNanoBananaConfig() {
     const output_format = outputFormatSelect.value;
     const safety_filter_level = safetyFilterLevelSelect.value;
 
-    const image_input = await filesToBase64(fileInput, {
+    const image_input = await filesToBase64(selectedFiles, {
       onProgress: (progress) => {
         if (onProgress) onProgress(progress);
       }
@@ -874,7 +940,13 @@ document.addEventListener("keydown", (event) => {
   }
 });
 
-resetModelForm("seedream", { silent: true });
-resetModelForm("nano-banana", { silent: true });
-setActiveModel(activeModelKey);
-applyStateToPreview(activeModelKey);
+try {
+  // resetModelForm("seedream", { silent: true }); // seedream not in config
+  resetModelForm("nano-banana", { silent: true });
+  setActiveModel(activeModelKey);
+  applyStateToPreview(activeModelKey);
+  console.log("App initialized successfully");
+} catch (error) {
+  console.error("App initialization failed:", error);
+  showToast("App initialization failed: " + error.message, "error");
+}
