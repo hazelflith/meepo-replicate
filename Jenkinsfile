@@ -9,7 +9,7 @@ pipeline {
     GIT_CREDENTIAL = 'meepo-autobot'
     ENV_FILE_CREDENTIAL = 'meepo-replicate-key'
     REGISTRY_CREDENTIAL = 'dockerhub-qtn'
-    RANCHER_TOKEN_CREDENTIAL = 'meepo-bearer-token'
+    RANCHER_TOKEN_CREDENTIAL = 'meepo-rancher-secret'
     RANCHER_PROJECT_ID = 'local:p-ngpnh'
     RANCHER_URL = 'https://dev-rancher.quantumteknologi.com'
     RANCHER_NAMESPACE = 'meepo-replicate'
