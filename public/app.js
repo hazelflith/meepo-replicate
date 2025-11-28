@@ -828,6 +828,8 @@ async function handleSubmit(event, modelKey) {
 
   setActiveOutputTab("preview");
 
+  const state = modelStates[modelKey];
+
   try {
     // Disable button immediately and show initial status
     toggleRunning(true, config, "Preparing...");
@@ -847,7 +849,6 @@ async function handleSubmit(event, modelKey) {
       return;
     }
 
-    const state = modelStates[modelKey];
     state.downloadExtension =
       downloadExtension || state.downloadExtension || state.defaultDownloadExtension;
 
