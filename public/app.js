@@ -24,8 +24,10 @@ const createInitialState = (downloadExtension = "png") => ({
   prediction: null,
   elapsedSeconds: null,
   downloadExtension,
+  downloadExtension,
   defaultDownloadExtension: downloadExtension,
   aspect: { ...defaultPreviewAspect },
+  isLoading: false,
 });
 
 const modelStates = {
@@ -124,7 +126,14 @@ const applyStateToPreview = (modelKey, { fallbackAspect } = {}) => {
 
   setPreviewAspect(previewAspect);
 
-  if (state.imageUrl) {
+  if (state.isLoading) {
+    outputPreview.innerHTML = `
+      <div class="preview-placeholder">
+        <div class="spinner"></div>
+        <span>Generating...</span>
+      </div>
+    `;
+  } else if (state.imageUrl) {
     const imageElement = document.createElement("img");
     imageElement.alt = `${modelKey} preview`;
     imageElement.decoding = "async";
@@ -845,9 +854,12 @@ async function handleSubmit(event, modelKey) {
     resetModelState(modelKey, { preserveDownloadExtension: true });
     applyStateToPreview(modelKey, { fallbackAspect: getExpectedAspectForModel(modelKey) });
 
+    state.isLoading = true;
+    applyStateToPreview(modelKey);
     toggleRunning(true, config, "Generating...");
 
     const startTime = Date.now();
+    const TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
 
     const response = await fetch("/api/predictions", {
       method: "POST",
@@ -872,6 +884,10 @@ async function handleSubmit(event, modelKey) {
       prediction.status !== "failed" &&
       prediction.status !== "canceled"
     ) {
+      if (Date.now() - startTime > TIMEOUT_MS) {
+        throw new Error("Prediction timed out after 5 minutes.");
+      }
+
       await new Promise((resolve) => setTimeout(resolve, 1500));
 
       const pollResponse = await fetch(`/api/predictions/${prediction.id}`);
@@ -918,6 +934,10 @@ async function handleSubmit(event, modelKey) {
       generatedTime.textContent = "—";
     }
   } finally {
+    state.isLoading = false;
+    if (modelKey === activeModelKey) {
+      applyStateToPreview(modelKey);
+    }
     toggleRunning(false, config);
   }
 }
