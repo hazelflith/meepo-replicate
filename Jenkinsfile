@@ -25,18 +25,14 @@ pipeline {
     stage('Checkout') {
       steps {
         git branch: "${env.GIT_BRANCH}", credentialsId: "${env.GIT_CREDENTIAL}", url: "https://github.com/QTN-DEV/${env.GIT_REPO}.git"
-        sh 'echo "Checked out branch: $(git rev-parse --abbrev-ref HEAD)"'
       }
     }
 
     stage('Set Commit Hash Tag') {
       steps {
         script {
-          def COMMIT_HASH = sh(script: "git rev-parse --short HEAD", returnStdout: true).trim()
-          echo "Commit Hash: ${COMMIT_HASH}"
-
-          env.IMAGE_TAG = COMMIT_HASH
-          echo "✅ Using IMAGE_TAG = ${env.IMAGE_TAG}"
+          env.IMAGE_TAG = sh(script: "git rev-parse --short HEAD", returnStdout: true).trim()
+          echo "IMAGE_TAG = ${env.IMAGE_TAG}"
         }
       }
     }
@@ -44,27 +40,23 @@ pipeline {
     stage('Prepare .env (optional)') {
       steps {
         withCredentials([file(credentialsId: "${ENV_FILE_CREDENTIAL}", variable: 'ENV_FILE')]) {
-          sh 'if [ -f "${ENV_FILE}" ]; then cp "${ENV_FILE}" .env && echo ".env copied"; else echo "ENV file not found"; fi'
+          sh 'if [ -f "${ENV_FILE}" ]; then cp "${ENV_FILE}" .env; fi'
         }
       }
     }
 
     stage('Build image') {
       steps {
-        script {
-          sh """
-            echo "Building image: ${DOCKERHUB_NAMESPACE}/${IMAGE_NAME}:${IMAGE_TAG}"
-            docker build -f Dockerfile -t ${DOCKERHUB_NAMESPACE}/${IMAGE_NAME}:${IMAGE_TAG} .
-          """
-        }
+        sh """
+          docker build -f Dockerfile -t ${DOCKERHUB_NAMESPACE}/${IMAGE_NAME}:${IMAGE_TAG} .
+        """
       }
     }
 
-    stage('Push image to DockerHub') {
+    stage('Push image') {
       steps {
         withCredentials([usernamePassword(credentialsId: "${REGISTRY_CREDENTIAL}", usernameVariable: 'DH_USER', passwordVariable: 'DH_PWD')]) {
           sh '''
-            echo "Logging into DockerHub..."
             echo "$DH_PWD" | docker login --username "$DH_USER" --password-stdin
             docker push ${DOCKERHUB_NAMESPACE}/${IMAGE_NAME}:${IMAGE_TAG}
             docker logout || true
@@ -73,7 +65,7 @@ pipeline {
       }
     }
 
-    stage('Redeploy via Rancher') {
+    stage('PATCH Update via Rancher') {
       steps {
         script {
           withCredentials([string(credentialsId: "${RANCHER_TOKEN_CREDENTIAL}", variable: 'RANCHER_TOKEN')]) {
@@ -82,17 +74,19 @@ pipeline {
               WORKLOAD_URL="${RANCHER_URL}/v3/project/${RANCHER_PROJECT_ID}/workloads/deployment:${RANCHER_NAMESPACE}:${RANCHER_DEPLOYMENT_NAME}"
               NEW_IMAGE="${DOCKERHUB_NAMESPACE}/${IMAGE_NAME}:${IMAGE_TAG}"
 
-              echo "Updating image via Rancher setpodimage..."
+              echo "Patching workload image to: $NEW_IMAGE"
 
-              curl -s -k -X POST \
+              curl -s -k -X PATCH \
                 -H "Authorization: Bearer ${RANCHER_TOKEN}" \
-                -H "Content-Type: application/json" \
-                "${WORKLOAD_URL}?action=setpodimage" \
-                -d "{
-                      \\"containers\\": {
-                        \\"${RANCHER_DEPLOYMENT_NAME}\\": \\"${NEW_IMAGE}\\"
+                -H "Content-Type: application/json-patch+json" \
+                "${WORKLOAD_URL}" \
+                -d "[
+                      {
+                        \\"op\\": \\"replace\\",
+                        \\"path\\": \\"/containers/0/image\\",
+                        \\"value\\": \\"${NEW_IMAGE}\\"
                       }
-                    }"
+                    ]"
 
               echo "Triggering redeploy..."
 
@@ -112,7 +106,6 @@ pipeline {
         sh """
           docker rmi ${DOCKERHUB_NAMESPACE}/${IMAGE_NAME}:${IMAGE_TAG} || true
           docker image prune -f || true
-          [ -f .env ] && rm -f .env || true
         """
       }
     }
