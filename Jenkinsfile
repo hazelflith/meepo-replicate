@@ -7,13 +7,9 @@ pipeline {
     GIT_REPO = "meepo-replicate"
     GIT_BRANCH = "main"
     GIT_CREDENTIAL = "meepo-autobot"
-
     ENV_FILE_CREDENTIAL = "meepo-replicate-key"
     REGISTRY_CREDENTIAL = "dockerhub-qtn"
-
-    # Important for kubectl access
     KUBECONFIG_CREDENTIAL = "kubeconfig-rafli"
-
     K8S_NAMESPACE = "meepo-replicate"
     DEPLOYMENT_NAME = "meepo-replicate"
   }
