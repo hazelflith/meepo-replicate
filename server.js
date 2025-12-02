@@ -2,6 +2,7 @@ import path from "path";
 import express from "express";
 import dotenv from "dotenv";
 import Replicate from "replicate";
+import { GoogleGenerativeAI } from "@google/generative-ai";
 import { fileURLToPath } from "url";
 
 dotenv.config();
@@ -18,6 +19,8 @@ const REFINE_MODEL_VERSION = process.env.REPLICATE_REFINE_MODEL_VERSION;
 const replicate = new Replicate({
   auth: process.env.REPLICATE_API_TOKEN,
 });
+
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
 const MODEL_CONFIG = {
   seedream: {
@@ -163,6 +166,74 @@ app.use(express.static(path.join(__dirname, "public")));
 
 app.post("/api/predictions", async (req, res) => {
   try {
+    const body = req.body || {};
+    const rawModelKey = typeof body.model_key === "string" ? body.model_key : undefined;
+    const modelKey = (rawModelKey || DEFAULT_MODEL_KEY).toLowerCase();
+
+    // Handle nano-banana with Gemini API
+    if (modelKey === "nano-banana") {
+      const geminiKey = process.env.GEMINI_API_KEY;
+      if (!geminiKey) {
+        return res
+          .status(500)
+          .json({ error: "Missing GEMINI_API_KEY in environment." });
+      }
+
+      const promptValue = typeof body.prompt === "string" ? body.prompt : "";
+      const trimmedPrompt = promptValue.trim();
+
+      if (!trimmedPrompt) {
+        return res.status(400).json({ error: 'Field "prompt" is required.' });
+      }
+
+      const startTime = Date.now();
+
+      try {
+        const model = genAI.getGenerativeModel({ model: "gemini-3-pro-image-preview" });
+
+        const result = await model.generateContent(trimmedPrompt);
+        const response = await result.response;
+
+        // Extract image data from response
+        let imageUrl = null;
+        if (response.candidates && response.candidates.length > 0) {
+          const candidate = response.candidates[0];
+          if (candidate.content && candidate.content.parts) {
+            for (const part of candidate.content.parts) {
+              if (part.inlineData) {
+                // Convert inline data to base64 data URL
+                const mimeType = part.inlineData.mimeType || "image/png";
+                const data = part.inlineData.data;
+                imageUrl = `data:${mimeType};base64,${data}`;
+                break;
+              }
+            }
+          }
+        }
+
+        const elapsedSeconds = Number(((Date.now() - startTime) / 1000).toFixed(2));
+
+        // Return in Replicate-compatible format
+        const prediction = {
+          id: `gemini-${Date.now()}`,
+          status: "succeeded",
+          output: imageUrl ? [imageUrl] : null,
+          created_at: new Date().toISOString(),
+          completed_at: new Date().toISOString(),
+          elapsed_seconds: elapsedSeconds,
+        };
+
+        return res.status(201).json({ prediction });
+      } catch (geminiError) {
+        console.error("[/api/predictions] Gemini API error:", geminiError);
+        return res.status(500).json({
+          error: "Gemini API request failed.",
+          details: geminiError instanceof Error ? geminiError.message : String(geminiError),
+        });
+      }
+    }
+
+    // Handle other models with Replicate API
     const token = process.env.REPLICATE_API_TOKEN;
     if (!token) {
       return res
@@ -170,9 +241,6 @@ app.post("/api/predictions", async (req, res) => {
         .json({ error: "Missing REPLICATE_API_TOKEN in environment." });
     }
 
-    const body = req.body || {};
-    const rawModelKey = typeof body.model_key === "string" ? body.model_key : undefined;
-    const modelKey = (rawModelKey || DEFAULT_MODEL_KEY).toLowerCase();
     const config = MODEL_CONFIG[modelKey];
 
     if (!config) {
@@ -180,10 +248,6 @@ app.post("/api/predictions", async (req, res) => {
         error: `Unsupported model key "${modelKey}".`,
       });
     }
-
-    // For google/nano-banana-pro, we don't strictly need a version ID if we use the model owner/name format
-    // but the existing code checks for config.version.
-    // The config above sets version to "google/nano-banana-pro".
 
     const promptValue = typeof body.prompt === "string" ? body.prompt : "";
     const trimmedPrompt = promptValue.trim();
