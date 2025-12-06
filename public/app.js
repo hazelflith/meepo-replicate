@@ -590,11 +590,11 @@ function createNanoBananaConfig() {
   };
 
   function resetFields() {
-    promptField.value = defaults.prompt;
-    aspectSelect.value = defaults.aspect_ratio;
-    imageSizeSelect.value = defaults.image_size;
-    candidateCountInput.value = defaults.candidateCount;
-    fileInput.value = "";
+    if (promptField) promptField.value = defaults.prompt;
+    if (aspectSelect) aspectSelect.value = defaults.aspect_ratio;
+    if (imageSizeSelect) imageSizeSelect.value = defaults.image_size;
+    if (candidateCountInput) candidateCountInput.value = defaults.candidateCount;
+    if (fileInput) fileInput.value = "";
     selectedFiles = [];
     matchInputAspect = null;
     applyPreviewAspect();
