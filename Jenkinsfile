@@ -3,7 +3,7 @@ pipeline {
 
   environment {
     IMAGE_NAME = "meepo-replicate"
-    DOCKERHUB_NAMESPACE = "quantumteknologi"
+    DOCKERHUB_NAMESPACE = "	swr.ap-southeast-4.myhuaweicloud.com/meepo/"
     GIT_REPO = "meepo-replicate"
     GIT_BRANCH = "main"
     GIT_CREDENTIAL = "meepo-autobot"
