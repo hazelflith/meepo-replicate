@@ -217,9 +217,8 @@ app.post("/api/predictions", async (req, res) => {
       predictions.set(predictionId, prediction);
 
       // Start async processing
-      const startTime = Date.now();
-
-      (async () => {
+      // wrap in setImmediate to return response first
+      setImmediate(async () => {
         try {
           // Parse parameters
           const aspectRatio = typeof body.aspect_ratio === "string" ? body.aspect_ratio : "4:3";
@@ -271,6 +270,9 @@ app.post("/api/predictions", async (req, res) => {
           // Extract image data from stream response
           let imageUrls = [];
           for await (const chunk of response) {
+            // Force yield to event loop to allow polling requests to be answered
+            await new Promise((resolve) => setTimeout(resolve, 0));
+
             if (chunk.candidates && chunk.candidates[0].content && chunk.candidates[0].content.parts) {
               for (const part of chunk.candidates[0].content.parts) {
                 if (part.inlineData) {
@@ -308,7 +310,7 @@ app.post("/api/predictions", async (req, res) => {
             storedPrediction.elapsed_seconds = Number(((Date.now() - startTime) / 1000).toFixed(2));
           }
         }
-      })();
+      });
 
       // Return immediately with processing status
       return res.status(201).json({ prediction });
