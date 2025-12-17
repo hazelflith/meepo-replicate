@@ -299,6 +299,8 @@ app.post("/api/predictions", async (req, res) => {
 
           // Extract image data from stream response
           let imageUrls = [];
+          let textParts = [];
+
           for await (const chunk of response) {
             // AGGRESSIVE YIELD: 100ms pause to ensure event loop is free for polling requests
             await new Promise((resolve) => setTimeout(resolve, 100));
@@ -309,6 +311,8 @@ app.post("/api/predictions", async (req, res) => {
                   const mimeType = part.inlineData.mimeType || "image/png";
                   const data = part.inlineData.data;
                   imageUrls.push(`data:${mimeType};base64,${data}`);
+                } else if (part.text) {
+                  textParts.push(part.text);
                 }
               }
             }
@@ -317,14 +321,25 @@ app.post("/api/predictions", async (req, res) => {
           clearInterval(heartbeatInterval);
           const elapsedSeconds = Number(((Date.now() - startTime) / 1000).toFixed(2));
 
-          // Update prediction with success
+          // Determine final output
+          let finalOutput = null;
+          if (imageUrls.length > 0) {
+            finalOutput = imageUrls;
+          } else if (textParts.length > 0) {
+            finalOutput = textParts.join("\n");
+            console.log(`[${predictionId}] No images generated. Text output captured: ${finalOutput.substring(0, 100)}...`);
+          } else {
+            console.warn(`[${predictionId}] Warning: No images OR text found in response.`);
+          }
+
+          // Update prediction with success (or partial success if we got text)
           const storedPrediction = predictions.get(predictionId);
           if (storedPrediction) {
             storedPrediction.status = "succeeded";
-            storedPrediction.output = imageUrls.length > 0 ? imageUrls : null;
+            storedPrediction.output = finalOutput;
             storedPrediction.completed_at = new Date().toISOString();
             storedPrediction.elapsed_seconds = elapsedSeconds;
-            console.log(`[${predictionId}] Success. Elapsed: ${elapsedSeconds}s. Heap: ${Math.round(process.memoryUsage().heapUsed / 1024 / 1024)}MB`);
+            console.log(`[${predictionId}] Success. Output type: ${imageUrls.length > 0 ? 'image' : 'text'}. Elapsed: ${elapsedSeconds}s. Heap: ${Math.round(process.memoryUsage().heapUsed / 1024 / 1024)}MB`);
           }
         } catch (geminiError) {
           if (heartbeatInterval) clearInterval(heartbeatInterval);
